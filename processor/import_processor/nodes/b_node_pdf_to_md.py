@@ -14,7 +14,6 @@ from processor.import_processor.base import BaseNode, setup_logging
 from processor.import_processor.exceptions import StateFieldError, FileProcessingError, PdfConversionError
 from processor.import_processor.state import ImportGraphState
 
-
 class NodePDFToMD(BaseNode):
     """
     PDF 转 Markdown 节点：PDF结构化解析
@@ -40,12 +39,10 @@ class NodePDFToMD(BaseNode):
         pdf_path_obj, output_dir_obj = self._step_1_validate_paths(state)
 
         # 第 2 步：把 PDF 交给 MinerU，等到解析完成，拿到结果压缩包的下载地址
-        # 目前是占位实现，直接返回字符串 "下载url"，还没有真正上传和轮询
         zip_url = self._step_2_upload_and_poll(pdf_path_obj)
         print(f"已经获得下载地址url{zip_url}")
 
         # 第 3 步：下载压缩包、解压，按 PDF 文件名（不含后缀）得到 md 路径
-        # 目前也是占位，直接返回字符串 "md_path"
         md_path = self._step_3_download_and_extract(zip_url, output_dir_obj, pdf_path_obj.stem)
 
         # 读出 Markdown 全文。读失败时只打印提示，不会把异常抛出去
@@ -97,10 +94,11 @@ class NodePDFToMD(BaseNode):
     def _step_2_upload_and_poll(self, pdf_path_obj: Path):
         """
         上传 PDF 到 MinerU，并轮询直到解析完成。
-        设计上应返回结果 zip 的下载地址。当前未实现，固定返回 "下载url"。
+        成功时返回结果 zip 的下载地址。
         """
         logging.info(f"_step_2_upload_and_poll上传文件到mineru服务器...")
 
+        # 1. 读取 MinerU 的 token 和接口地址，缺一个就停
         api_token = mineru_config.api_token
         base_url = mineru_config.base_url
 
@@ -120,6 +118,7 @@ class NodePDFToMD(BaseNode):
             "model_version": "vlm"
         }
 
+        # 2. 先申请上传地址，拿到批次号 batch_id 和临时上传链接
         url = f"{base_url}/file-urls/batch"
         response = requests.post(url, headers=header, json=data)
         if response.status_code != 200:
@@ -130,12 +129,14 @@ class NodePDFToMD(BaseNode):
         batch_id = result["data"]["batch_id"]
         signed_urls = result["data"]["file_urls"][0]
 
+        # 3. 把本地 PDF 传到上面那个临时链接
         with open(pdf_path_obj, "rb") as pdf_file:
             res_upload = requests.put(signed_urls, data=pdf_file)
             if res_upload.status_code != 200:
                 raise PdfConversionError(f"文件上传失败,状态码:{res_upload.status_code},响应结果:{res_upload}")
             self.logger.info(f"文件上传成功!")
 
+            # 4. 每隔 3 秒问一次解析进度，最多等 10 分钟
             poll_url = f"{base_url}/extract-results/batch/{batch_id}"
             start_time = time.time()
             timeout_seconds = 600
@@ -148,6 +149,7 @@ class NodePDFToMD(BaseNode):
                 try:
                     res_poll = requests.get(url=poll_url, headers=header, timeout=10)
                 except Exception as e:
+                    # 网络抖一下就再等一轮，不立刻失败
                     self.logger.error(f"轮询接口异常:{e}")
                     time.sleep(poll_interval)
                     continue
@@ -165,6 +167,7 @@ class NodePDFToMD(BaseNode):
                 extract_result = extract_results[0]
                 extract_state = extract_result["state"]
 
+                # done 就返回 zip 下载地址；failed 报错；其他状态继续等
                 if extract_state == "done":
                     full_zip_url = extract_result["full_zip_url"]
                     return full_zip_url
@@ -184,12 +187,13 @@ class NodePDFToMD(BaseNode):
         下载 zip、解压，并把 Markdown 放到输出目录。
 
         pdf_stem 是 PDF 文件名去掉后缀，例如 "hak180产品安全手册"。
-        设计上的落盘位置类似：
+        落盘位置类似：
         D:\\output\\hak180产品安全手册\\hak180产品安全手册.md
-        当前未实现，固定返回字符串 "md_path"。
+        返回这个 md 文件的绝对路径。
         """
         logging.info(f"_step_3_download_and_extract下载并解压改名")
 
+        # 1. 下载 zip，存成「文件名_result.zip」
         response = requests.get(zip_url)
         if response.status_code != 200:
             raise FileProcessingError(message=f"获得下载文件失败:{response.text}")
@@ -197,6 +201,7 @@ class NodePDFToMD(BaseNode):
         with open(zip_save_path, "wb") as f:
             f.write(response.content)
 
+        # 2. 解压到以 PDF 文件名命名的目录
         extract_target_dir = output_dir_obj / pdf_stem
         extract_target_dir.mkdir(parents=True, exist_ok=True)
 
@@ -204,6 +209,7 @@ class NodePDFToMD(BaseNode):
             zip_file_obj.extractall(extract_target_dir)
         self.logger.info(f"[ZIP已解压]已清空旧的解压目录:{extract_target_dir}")
 
+        # 3. MinerU 固定产出 full.md，改成和 PDF 同名
         self.logger.info(f"[MD重命名]找到MinerU生成的full.md文件")
         target_md_file = extract_target_dir / "full.md"
 
@@ -214,7 +220,6 @@ class NodePDFToMD(BaseNode):
         self.logger.info(f"[MD重命名]重命名成功,文件名:{pdf_stem}.md")
 
         return str(new_md_path.absolute())
-
 
 # 直接运行本文件时走这里，不经过整张导入图，只单独测这个节点
 if __name__ == "__main__":
