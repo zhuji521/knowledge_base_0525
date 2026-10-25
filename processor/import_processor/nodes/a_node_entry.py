@@ -39,6 +39,7 @@ class NodeEntry(BaseNode):
         elif import_file_path_obj.suffix==".pdf":
             # PDF 文件：启用 PDF 读取
             state["is_pdf_read_enabled"]=True
+            state["pdf_path"] = import_file_path
         else:
             # 其他格式：直接报错，不支持处理
             raise FileProcessingError(message=f"不支持的文件格式:{import_file_path}")
@@ -46,7 +47,7 @@ class NodeEntry(BaseNode):
 
         # 第 7 步：写入后续节点要用的文件信息
         state["file_title"]=import_file_path_obj.stem  # 文件名（不含扩展名）
-        state["file_dir"]=r"D:outpput"  # 输出目录
+        state["file_dir"]=r"D:\output"  # 输出目录
 
         # 第 8 步：返回更新后的状态，交给下一个节点继续处理
         return state

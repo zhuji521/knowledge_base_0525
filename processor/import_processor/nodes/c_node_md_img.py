@@ -87,6 +87,7 @@ class NodeMDImg(BaseNode):                                    # 继承 BaseNode�
         state["md_content"] = new_md_content                   # 更新正文：下游切分节点用的就是这一份
         state["md_path"] = new_md_file_name                    # 指向新文件，下游按这个路径读
 
+        state["file_title"] = Path(new_md_file_name).stem
         return state                                           # LangGraph 约定：节点返回更新后的 state
 
     def _step_1_get_content(self, state):

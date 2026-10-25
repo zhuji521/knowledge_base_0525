@@ -74,7 +74,7 @@ class NodeItemNameRecognition(BaseNode):
 
         # 第 4.5 步：备份「识别 item_name 后」的切片到本地
         # 命名：{file_title}_new_chunks.json，例如 B530_new → B530_new_new_chunks.json
-        self._step_4_5_backup_chunks(state, chunks)
+        self._step_5_backup_chunks(state, chunks)
 
         # 第 5 步：把商品名称向量化，得到稠密向量和稀疏向量
         dense_vector, sparse_vector = self._step_5_generate_vectors(item_name)
@@ -229,7 +229,7 @@ class NodeItemNameRecognition(BaseNode):
         state["chunks"] = chunks
         return state
 
-    def _step_4_5_backup_chunks(self, state, chunks):
+    def _step_5_backup_chunks(self, state, chunks):
         """
         备份识别 item_name 后的文档切片。
 
