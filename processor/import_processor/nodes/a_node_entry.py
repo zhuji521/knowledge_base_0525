@@ -6,7 +6,6 @@ from processor.import_processor.base import BaseNode  # 节点基类，提供统
 from processor.import_processor.exceptions import StateFieldError, FileProcessingError  # 自定义异常
 from processor.import_processor.state import ImportGraphState  # 图中流转的状态数据类型
 
-
 class NodeEntry(BaseNode):
     """
     入口节点：任务分发
@@ -43,7 +42,6 @@ class NodeEntry(BaseNode):
         else:
             # 其他格式：直接报错，不支持处理
             raise FileProcessingError(message=f"不支持的文件格式:{import_file_path}")
-
 
         # 第 7 步：写入后续节点要用的文件信息
         state["file_title"]=import_file_path_obj.stem  # 文件名（不含扩展名）
