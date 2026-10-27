@@ -1,0 +1,57 @@
+{
+  "schemaVersion": 1,
+  "backend": "native",
+  "rasterEngine": "libreoffice",
+  "source": "saved",
+  "inputPath": "D:\\project\\knowledge_base_0525\\docs\\Python知识整理_导入流水线七节点.docx",
+  "sourceSha256": "0d2e5b19d5db02dc253574c20aa3e7a86518366a89681185c7d8d4cfdf945586",
+  "dpi": 144,
+  "pageCount": 58,
+  "images": [
+    {
+      "index": 1,
+      "page": 2,
+      "path": "D:\\project\\knowledge_base_0525\\.dsh-office-44aaafac3e83431eb8ba39b28667f17d\\render6\\page-0001.png",
+      "width": 1191,
+      "height": 1684,
+      "rectangle": {
+        "x": 0,
+        "y": 0,
+        "width": 793.7333333333333,
+        "height": 1122.5333333333333
+      },
+      "byteLength": 188362
+    },
+    {
+      "index": 2,
+      "page": 3,
+      "path": "D:\\project\\knowledge_base_0525\\.dsh-office-44aaafac3e83431eb8ba39b28667f17d\\render6\\page-0002.png",
+      "width": 1191,
+      "height": 1684,
+      "rectangle": {
+        "x": 0,
+        "y": 0,
+        "width": 793.7333333333333,
+        "height": 1122.5333333333333
+      },
+      "byteLength": 201261
+    },
+    {
+      "index": 3,
+      "page": 4,
+      "path": "D:\\project\\knowledge_base_0525\\.dsh-office-44aaafac3e83431eb8ba39b28667f17d\\render6\\page-0003.png",
+      "width": 1191,
+      "height": 1684,
+      "rectangle": {
+        "x": 0,
+        "y": 0,
+        "width": 793.7333333333333,
+        "height": 1122.5333333333333
+      },
+      "byteLength": 20187
+    }
+  ],
+  "missingFonts": [
+    "Courier"
+  ]
+}
