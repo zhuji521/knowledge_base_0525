@@ -28,15 +28,10 @@ import logging                                       # 标准库：日志，取�
 import os                                            # 标准库：列目录、拆扩展名、拼路径
 import time                                          # 标准库：取时间戳、限流时 sleep
 import re                                            # 标准库：用正则匹配和替换 md 里的图片语法
-from ast import Tuple, List, Dict                    # 无效导入：ast 里的同名类是语法树节点，会被下面的 typing 导入覆盖
 from collections import deque                        # 标准库：双端队列，用它的 popleft 做滑动窗口限流
 from pathlib import Path                             # 标准库：面向对象的路径操作，比字符串拼路径安全
 from typing import Deque, Dict, List, Tuple          # 类型注解：双端队列、字典、列表、元组（覆盖上面 ast 的同名类）
 
-from django.contrib.messages.constants import SUCCESS                        # 未使用：Django 消息级别常量（本项目并未安装 Django）
-from django.contrib.messages.context_processors import messages              # 未使用：Django 消息上下文处理器
-from django.db.models.expressions import result                              # 未使用：Django ORM 表达式
-from langchain_deepseek import ChatDeepSeek          # LangChain 的 DeepSeek 客户端，用来调多模态模型
 from minio import Minio                             # MinIO 客户端类型，只用于类型注解
 from minio.deleteobjects import DeleteObject        # 批量删除 MinIO 对象时，用它包装对象名
 
@@ -72,9 +67,10 @@ class NodeMDImg(BaseNode):                                    # 继承 BaseNode�
 
         # 步骤2：扫描图片，并找到每张图在 md 里的上下文
         target_images = self._step_2_scan_images(md_content, images_dir)        # 列表，每个元素是 (文件名, 图片路径, (上文, 下文))
+        # 这行代码扫描 images 目录，找出正文里引用过的图片，连同每张图的本地路径和前后文，放进 target_images。
         print(f"target_images:{target_images}")                                 # 调试打印：本次要处理的图片清单
 
-        # 步骤3：调用视觉模型，生成每张图的中文摘要
+        # 步骤3：调用视觉模型，生成每张图的中文摘要 这行代码让视觉模型给每张图写一句中文摘要，结果放进 summaries。
         summaries = self._step_3_generate_summaries(md_path_obj.stem, target_images)   # md_path_obj.stem = 去掉 .md 的文件名
 
         # 步骤4：上传图片并替换 md 中的图片引用
@@ -94,7 +90,7 @@ class NodeMDImg(BaseNode):                                    # 继承 BaseNode�
         """从 state 读取 md 路径和内容；没有内容就从文件读。"""
         md_path = state.get("md_path")                          # 从 state 取 md 路径，取不到返回 None（不会 KeyError）
         if not md_path:                                         # 空字符串、None 都算没给路径
-            raise StateFieldError(file_name="md_path", expected_type=str)   # 抛自定义异常，提示缺字段
+            raise StateFieldError(field_name="md_path", expected_type=str)   # 抛自定义异常，提示缺字段
         md_path_obj = Path(md_path)                             # 转成 Path 对象，后面拼路径更方便
 
         if not md_path_obj.exists():                            # 先确认文件真的存在
@@ -128,7 +124,9 @@ class NodeMDImg(BaseNode):                                    # 继承 BaseNode�
             img_path = images_dir / image_file                  # 拼出这张图的完整本地路径
 
             # 在 md 正文里找这张图，并截取前后文
+            print(f"image_file: {image_file};md_content: {md_content}")
             context = self._find_image_in_md(md_content, image_file)   # 返回 (上文, 下文)；md 里没引用则返回 None
+            print(f"context: {context}")
 
             if not context:                                     # 没找到引用
                 self.logger.warning(f"图片未在MD中引用,跳过处理:{image_file}")   # 记警告：说明跳过原因
@@ -171,6 +169,7 @@ class NodeMDImg(BaseNode):                                    # 继承 BaseNode�
             # 先限流，再调模型，避免触发 API 频率限制
             self._apply_api_rate_limit(request_deque, max_requests=10)   # 1 分钟窗口内最多 10 次，超了就阻塞等待
             summaries[img_file] = self._summarize_image(image_path, root_folder=doc_stem, image_content=context)   # 调模型拿摘要
+        # 17行例子  summaries["048c005b.jpg"] = "操作面板布局图"
         return summaries                                        # 返回 {文件名: 摘要}
 
     def _apply_api_rate_limit(
@@ -210,46 +209,55 @@ class NodeMDImg(BaseNode):                                    # 继承 BaseNode�
         request_times.append(current_time)                       # 把本次请求时间入队，供下次判断
         logging.getLogger().info(f"API请求时间戳已记录，当前{window_seconds}秒窗口内请求数：{len(request_times)}")   # 日志：当前窗口内请求数
 
+
     def _summarize_image(self, image_path: str, root_folder: str, image_content: Tuple[str, str]) -> str:
-        """把图片转成 base64，连同前后文一起发给视觉模型，得到一句中文摘要。"""
-        # 读图片并编码，方便塞进多模态消息
-        with open(image_path, "rb") as img_file:                 # 以二进制方式打开图片
-            image_base64 = base64.b64encode(img_file.read()).decode("utf-8")   # 读全部字节 -> base64 字节 -> utf-8 字符串
+        """
+           调用多模态大模型总结图片内容。
 
-        ai = ChatDeepSeek(                                       # 新建一个 DeepSeek 客户端实例
-            model=lm_config.vl_model, temperature=lm_config.llm_temperature, base_url=lm_config.base_url,   # 模型名、温度、服务地址
-            api_key=lm_config.api_key, model_kwargs={"response_format": {"type": "json_object"}}            # 密钥；要求返回 JSON
-        )
+           参数：
+           - image_path: 图片本地路径。
+           - root_folder: 文档所属文件夹名（提供更多上下文）。
+           - image_content: 图片在文档中的上下文 (前文, 后文)。
+        """
+        with open(image_path, "rb") as img_file:
+            base64_image = base64.b64encode(img_file.read()).decode("utf-8")
 
-        # 获取视觉大模型客户端
-        vl_ai = get_llm_client(lm_config.vl_model)               # 真正发请求的是这个（工厂内部带缓存，不会重复创建）
+        ext = os.path.splitext(image_path)[1].lower().lstrip(".")
+        mime_ext = "jpeg" if ext in ("jpg", "jpeg", "") else ext
 
-        # 构造「文字说明 + 图片」的消息
-        pre_text = ""                                            # 图片上文，先给默认空串
-        post_text = ""                                           # 图片下文，先给默认空串
-        if image_content:                                        # 有上下文才解包
-            pre_text, post_text = image_content                  # 解包成「上文、下文」
-        messages = [                                             # 多模态消息列表：一条 user 消息，内容包含文字 + 图片
-            {
-                "role": "user",                                  # 角色：用户
-                "content": [                                     # content 是一个「多段内容」列表
-                    {
-                        "type": "text",                          # 第一段：文本
-                        # 提示词：告诉模型图片属于哪个文件、前后文是什么、要什么样的摘要
-                        "text": f"""这是"{root_folder}"文件中的一张图片，图片上文部分为"{pre_text}"，下文部分为"{post_text}"，请用中文简要总结这张图片的内容，用于 Markdown 图片标题。"""
-                    },
-                    {
-                        "type": "image_url",                     # 第二段：图片
-                        "image_url": {                           # 图片内容对象：模型只认 URL 字段
-                            "url": f"data:image/jpeg;base64,{image_base64}"   # 用 data URL 内联图片（这里固定写成 jpeg）
+        try:
+            # chat_model = ChatOpenAI(
+            #     model=lm_config.vl_model,
+            #     api_key=lm_config.api_key,
+            #     base_url=lm_config.base_url,
+            #     temperature=lm_config.llm_temperature
+            # )
+            vl_ai = get_llm_client(lm_config.vl_model)
+            messages = [
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": f"""这是"{root_folder}"文件中的一张图片，图片上文部分为"{image_content[0]}"，下文部分为"{image_content[1]}"，请用中文简要总结这张图片的内容，用于 Markdown 图片标题。"""
+                        },
+                        {
+                            "type": "image_url",
+                            "image_url": {
+                                "url": f"data:image/{mime_ext};base64,{base64_image}"
+                            }
                         }
-                    }
-                ]
-            }
-        ]
-        response = vl_ai.invoke(messages)                        # 同步调用模型，拿到完整响应对象
-        # 去掉换行，方便直接当图片标题用
-        return response.content.strip().replace("\n", "")        # 取文本内容 -> 去首尾空白 -> 删掉换行符
+                    ]
+                }
+            ]
+            # print(f"messages: {messages}")
+            response = vl_ai.invoke(messages)
+            # print(f"response: {response}")
+            return response.content.strip().replace("\n", "")
+
+        except Exception as e:
+            self.logger.error(f"图像总结失败：{image_path}, 错误{e}")
+            return "图片描述"    # 取文本内容 -> 去首尾空白 -> 删掉换行符
 
     def _step_4_upload_replace(self, doc_stem: str, target_images: List[Tuple[str, str, Tuple[str, str]]],
                                summaries: Dict[str, str], md_content: str):
@@ -350,7 +358,7 @@ if __name__ == "__main__":                                       # 只有直接�
     setup_logging()                                              # 初始化日志格式（时间、logger 名、级别）
 
     init_state = {                                               # 构造一个最小可用的 state
-        "md_path": "D:\output\hak180\hak180.md",                 # 要调试的 md 文件完整路径
+        "md_path": "D:\output\H3C LA2608室内无线网关 用户手册-6W100-整本手册\H3C LA2608室内无线网关 用户手册-6W100-整本手册.md",                 # 要调试的 md 文件完整路径
         "md_content": None                                       # 正文先给 None，让节点自己从磁盘读
     }
 

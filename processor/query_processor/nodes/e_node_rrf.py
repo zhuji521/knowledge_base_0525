@@ -36,14 +36,13 @@ class NodeRrf(NodeBase):
         # 打印日志，标明当前正在执行本节点
         logger.info(f"【{self.name}】节点逻辑")
         # 从状态中取出「普通向量检索」得到的 chunk 列表
-        embedding_chunks=state.get("embedding_chunks")
-        # 从状态中取出「HyDE 假设性文档向量检索」得到的 chunk 列表
-        hyde_embedding_chunks=state.get("hyde_embedding_chunks")
-
-        # 从每条向量检索结果里取出真正的文档实体 entity，组成列表
-        embedding_chunks_list=[doc.get("entity") for doc in embedding_chunks]
-        # 从每条 HyDE 检索结果里取出真正的文档实体 entity，组成列表
-        hyde_embedding_chunks_list=[doc.get("entity") for doc in hyde_embedding_chunks]
+        embedding_chunks = state.get("embedding_chunks") or []
+        hyde_embedding_chunks = state.get("hyde_embedding_chunks") or []
+        embedding_chunks_list = [doc.get("entity") for doc in embedding_chunks if isinstance(doc, dict)]
+        hyde_embedding_chunks_list = [doc.get("entity") for doc in hyde_embedding_chunks if isinstance(doc, dict)]
+        # 再过滤掉 entity 为 None 的
+        embedding_chunks_list = [d for d in embedding_chunks_list if d]
+        hyde_embedding_chunks_list = [d for d in hyde_embedding_chunks_list if d]
 
         # 组装 RRF 输入：每一项是 (文档列表, 权重)
         rrf_inputs=[

@@ -17,7 +17,6 @@ from typing import List, Dict, Tuple         # 类型注解：列表 / 字典 / 
 
 # ---------------------------- 第三方库 ----------------------------
 from langchain_core.messages import SystemMessage, HumanMessage  # 大模型消息：System 定角色，Human 传内容
-from langchain_deepseek import ChatDeepSeek                      # DeepSeek 大模型客户端
 from pymilvus import DataType                                    # Milvus 的字段数据类型枚举
 
 # ---------------------------- 项目内部模块 ----------------------------
@@ -28,6 +27,7 @@ from processor.import_processor.exceptions import StateFieldError  # 状态字�
 from processor.import_processor.state import ImportGraphState      # 流程图状态对象（各节点共享的数据）
 from utils.embedding_utils import generate_embeddings              # 向量化工具：一次返回稠密向量 + 稀疏向量
 from utils.milvus_utils import get_milvus_client, escape_milvus_string  # 获取 Milvus 客户端 / 转义字符串中的特殊符号
+from utils.llm_utils import get_llm_client                         # 带缓存的 LLM 客户端工厂
 
 
 class NodeItemNameRecognition(BaseNode):
@@ -35,7 +35,7 @@ class NodeItemNameRecognition(BaseNode):
     主体识别节点：主体识别与标签提取
 
     节点输入：
-        state["file_title"] —— 文件标题，例如 "hak180"
+        state["file_title"] —— 文件标题，例如 "H3C LA2608室内无线网关 用户手册-6W100-整本手册"
         state["chunks"]     —— 切片列表，每个切片含 title、content 等字段
 
     节点输出：
@@ -168,14 +168,8 @@ class NodeItemNameRecognition(BaseNode):
         if not context:
             return file_title
 
-        # 2) 创建 DeepSeek 模型客户端（参数全部来自大模型配置）
-        llm_ai = ChatDeepSeek(
-            model=lm_config.llm_model,          # 模型名称
-            api_key=lm_config.api_key,          # 密钥
-            base_url=lm_config.base_url,        # 接口地址
-            temperature=lm_config.llm_temperature,  # 温度：越低输出越稳定
-            extra_body={"enable_thinking": False}   # 关闭"思考"过程，直接给结果，更快更省
-        )
+        # 2) 创建 模型客户端（参数全部来自大模型配置）
+        llm = get_llm_client(lm_config.item_model)
 
         # 3) 拼提示词：告诉模型要识别什么、输出格式是什么
         prompt = f"""请从以下信息中识别出商品名称与型号：
@@ -195,7 +189,7 @@ class NodeItemNameRecognition(BaseNode):
             HumanMessage(content=prompt)
         ]
         # 5) 调用模型，拿到回复
-        response = llm_ai.invoke(message)
+        response = llm.invoke(message)
 
         # 6) 取出回复文本（getattr 防止没有 content 属性），并去掉首尾空白
         item_name = getattr(response, "content", "").strip()
@@ -236,7 +230,7 @@ class NodeItemNameRecognition(BaseNode):
         输出文件（与课程图示一致）：
           {file_title}_new_chunks.json
           例如 file_title=B530_new → B530_new_new_chunks.json
-          例如 file_title=hak180_new → hak180_new_new_chunks.json
+          例如 file_title=H3C LA2608室内无线网关 用户手册-6W100-整本手册_new → H3C LA2608室内无线网关 用户手册-6W100-整本手册_new_new_chunks.json
         保存目录优先取 md_path 所在目录，其次 file_dir。
         """
         print("node_item_name_recognition:步骤4.5:备份识别后的chunks")
@@ -397,6 +391,7 @@ class NodeItemNameRecognition(BaseNode):
 
         # 13) 再次确保 state 里有商品名称，并返回
         state["item_name"]=item_name
+        print(f"state:{state}")
         return state
 
 # ============================================================================
@@ -407,21 +402,22 @@ if __name__ == "__main__":
     node = NodeItemNameRecognition()
 
     # 2) 准备一份切片 json 文件路径（d 节点产出：{file_title}_chunks.json）
-    path = r"D:\output\hak180\hak180_new_chunks.json"
+    path = r"D:\output\H3C LA2608室内无线网关 用户手册-6W100-整本手册\H3C LA2608室内无线网关 用户手册-6W100-整本手册_new_chunks.json"
 
     # 3) 读取 json 文件内容
     with open(path, "r", encoding="utf-8") as f:
         chunks_json_data = f.read()
-    # 4) 组装初始 state：file_title 需与 d 节点一致（hak180_new），才会写出 hak180_new_new_chunks.json
+    # 4) 组装初始 state：file_title 需与 d 节点一致（H3C LA2608室内无线网关 用户手册-6W100-整本手册_new），才会写出 H3C LA2608室内无线网关 用户手册-6W100-整本手册_new_new_chunks.json
     init_state = {
-        "file_title": "hak180_new",
-        "md_path": r"D:\output\hak180\hak180_new.md",
-        "file_dir": r"D:\output\hak180",
+        "file_title": "H3C LA2608室内无线网关 用户手册-6W100-整本手册_new",
+        "md_path": r"D:\output\H3C LA2608室内无线网关 用户手册-6W100-整本手册\H3C LA2608室内无线网关 用户手册-6W100-整本手册_new.md",
+        "file_dir": r"D:\output\H3C LA2608室内无线网关 用户手册-6W100-整本手册",
         "chunks": json.loads(chunks_json_data),
     }
-
-    # 5) 执行节点主流程（会备份到 D:\output\hak180\hak180_new_new_chunks.json）
+    print(f"init_state:{init_state}")
+    # 5) 执行节点主流程（会备份到 D:\output\H3C LA2608室内无线网关 用户手册-6W100-整本手册\H3C LA2608室内无线网关 用户手册-6W100-整本手册_new_new_chunks.json）
     process = node.process(init_state)
+    print(f"process:{process}")
     # 6) 打印每个切片的标题和识别出的商品名称
     for chunk in process["chunks"]:
         print(f'{chunk.get("title")}章节:{chunk.get("item_name")}')

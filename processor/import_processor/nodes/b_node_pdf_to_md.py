@@ -7,7 +7,6 @@ from pathlib import Path
 from urllib.parse import urlsplit
 
 import requests
-from django.utils.archive import extract
 
 from config.mineru_config import mineru_config
 from processor.import_processor.base import BaseNode, setup_logging
@@ -46,17 +45,8 @@ class NodePDFToMD(BaseNode):
         md_path = self._step_3_download_and_extract(zip_url, output_dir_obj, pdf_path_obj.stem)
 
         # 读出 Markdown 全文。读失败时只打印提示，不会把异常抛出去
-        try:
-            with open(md_path, "r", encoding="utf-8") as md_file:
-                md_content = md_file.read()
-        except:
-            print("其实你的程序已经成功了!!!")
-        finally:
-            # 无论读成功还是失败，都会执行到这里
-            print("over")
-
-        # 把正文和路径写回状态，后续节点（图片处理、切分等）从这里取
-        # 如果上面 open 失败，md_content 还没被赋值，这里会再抛 NameError
+        with open(md_path, "r", encoding="utf-8") as md_file:
+            md_content = md_file.read()
         state["md_content"] = md_content
         state["md_path"] = md_path
 

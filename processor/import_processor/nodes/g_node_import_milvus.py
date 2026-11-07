@@ -246,7 +246,7 @@ if __name__ == "__main__":
     # 创建节点实例
     node_import_milvus = NodeImportMilvus()
     # 调用节点（走基类 __call__），执行完整的导入流程
-    result = node_import_milvus(init_state)
+    result = node_import_milvus.process(init_state)
 
     # 把最终结果以 JSON 格式打印到日志，ensure_ascii=False 保留中文
     logging.getLogger().info(json.dumps(result, ensure_ascii=False, indent=4))

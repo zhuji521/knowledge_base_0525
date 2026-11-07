@@ -15,6 +15,7 @@ from pymongo import MongoClient, ASCENDING
 from bson import ObjectId
 # 导入dotenv模块：用于从.env文件加载环境变量，避免硬编码敏感配置（如MongoDB连接地址）
 from dotenv import load_dotenv
+from pymongo import DESCENDING
 
 # 加载.env文件中的环境变量，使os.getenv能读取到配置
 load_dotenv()
@@ -199,11 +200,11 @@ def get_recent_messages(session_id: str, limit: int = 10) -> List[Dict[str, Any]
         # find(query)：获取符合条件的游标（惰性加载，不立即查询）
         # sort("ts", ASCENDING)：按ts字段升序（从旧到新），适配LLM上下文顺序
         # limit(limit)：限制返回的最大条数
-        cursor = mongo_tool.chat_message.find(query).sort("ts", ASCENDING).limit(limit)
-        # 将游标转为列表，触发实际数据库查询，获取所有符合条件的文档
+        cursor = mongo_tool.chat_message.find(query).sort("ts", DESCENDING).limit(limit)
         messages = list(cursor)
-        # 返回查询结果列表
+        messages.reverse()
         return messages
+
     except Exception as e:
         # 捕获查询异常，记录错误日志
         logging.error(f"Error getting recent messages: {e}")

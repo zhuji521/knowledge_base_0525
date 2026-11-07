@@ -32,20 +32,22 @@ class NodeEntry(BaseNode):
             raise FileProcessingError(message=f"文件不存在:{import_file_path}")
 
         # 第 6 步：根据文件后缀判断文件类型，并开启对应的读取开关
-        if import_file_path_obj.suffix == ".md":
-            # Markdown 文件：启用 MD 读取
+        # 第 6 步：根据文件后缀判断文件类型（不区分大小写）
+        suffix = import_file_path_obj.suffix.lower()
+        if suffix == ".md":
             state["is_md_read_enabled"] = True
-        elif import_file_path_obj.suffix==".pdf":
-            # PDF 文件：启用 PDF 读取
-            state["is_pdf_read_enabled"]=True
+            state["md_path"] = import_file_path
+        elif suffix == ".pdf":
+            state["is_pdf_read_enabled"] = True
             state["pdf_path"] = import_file_path
         else:
-            # 其他格式：直接报错，不支持处理
             raise FileProcessingError(message=f"不支持的文件格式:{import_file_path}")
-
         # 第 7 步：写入后续节点要用的文件信息
-        state["file_title"]=import_file_path_obj.stem  # 文件名（不含扩展名）
-        state["file_dir"]=r"D:\output"  # 输出目录
+        state["file_title"] = import_file_path_obj.stem
+        # 有则保留（上传接口已传入）；无则兜底用文件所在目录
+        if not state.get("file_dir"):
+            state["file_dir"] = str(import_file_path_obj.parent)
+        Path(state["file_dir"]).mkdir(parents=True, exist_ok=True)
 
         # 第 8 步：返回更新后的状态，交给下一个节点继续处理
         return state

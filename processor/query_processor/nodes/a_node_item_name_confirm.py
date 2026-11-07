@@ -124,9 +124,9 @@ class NodeItemNameConfirm(NodeBase):
                   f"confirmed_item_name,中分:options")
 
             # 取出"高分确认"的商品名列表（可以直接认定是它）
-            names_list=align_result["confirmed_item_names"]
+            names_list = align_result["confirmed_item_names"]
             # 取出"中分候选"的商品名列表（需要反问用户选哪个）
-            options=align_result["options"]
+            options = align_result["options"]
             # 把两份结果打印出来，方便对账排查
             print(f"{names_list},{options}")
 
@@ -347,9 +347,9 @@ class NodeItemNameConfirm(NodeBase):
         # 逐个处理"每个抽出商品名的召回结果"
         for res in query_results:
             # 取出用户侧抽到的名字；取不到就用空串兜底，再 strip 去掉首尾空白
-            extracted_name=(res.get("extracted_name","") or "").strip()
+            extracted_name = (res.get("extracted_name", "") or "").strip()
             # 取出该名字的命中列表；取不到就用空列表兜底
-            matches=res.get("matches",[]) or []
+            matches = res.get("matches", []) or []
             # 一条命中都没有，这个商品名就没法判断，直接看下一个
             if not matches:
                 # 跳过本轮
@@ -357,9 +357,9 @@ class NodeItemNameConfirm(NodeBase):
 
             # 高分集合：分数 >= 0.8 的命中，基本可以认定是同一个商品
             # （用 m.get("score",0) 取值，缺分数按 0 处理，避免 TypeError）
-            high_results=[m for m in matches if m.get("score",0) >= 0.8]
+            high_results = [m for m in matches if m.get("score", 0) >= 0.8]
             # 中分集合：分数 >= 0.6 的命中（注意它包含高分段，是"至少 0.6"）
-            mid_results=[m for m in matches if m.get("score",0) >=0.6]
+            mid_results = [m for m in matches if 0.8 > m.get("score", 0) >= 0.6]
 
             # 情况一：只有 1 个高分 → 直接确认是它
             if len(high_results) == 1:
@@ -367,14 +367,14 @@ class NodeItemNameConfirm(NodeBase):
                 # append() 的返回值是 None，这里再链式调用 .get(...) 会抛
                 # AttributeError: 'NoneType' object has no attribute 'get'
                 # 推测原意是：confirmed_item_names.append(high_results[0].get("item_name"))
-                confirmed_item_names.append(high_results[0]).get("item_name")
+                confirmed_item_names.append(high_results[0].get("item_name"))
                 # 本轮处理完，继续下一个商品名
                 continue
 
             # 情况二：有多个高分 → 需要"挑一个"
-            if len(high_results) >1:
+            if len(high_results) > 1:
                 # 先假设没挑中
-                picked=None
+                picked = None
                 # 如果用户侧抽到了名字，就尝试"精确匹配"：找库里名字与抽到的名字完全相同的那个
                 if extracted_name:
                     # 遍历所有高分候选
@@ -382,7 +382,7 @@ class NodeItemNameConfirm(NodeBase):
                         # 名字完全相同，就认为命中了用户真实想要的那个
                         if hr.get("item_name") == extracted_name:
                             # 记下这个候选
-                            picked=hr
+                            picked = hr
                             # 找到就跳出循环，不用再比
                             break
                 # 精确匹配没找到（picked 仍是 None），就退而取第一个高分候选
@@ -392,12 +392,12 @@ class NodeItemNameConfirm(NodeBase):
 
                 # 【代码原样，注意这里有疑似 Bug】字段名写成了 "items_name"（多了个 s）
                 # 正确应为 "item_name"，否则取到的是 None，会让确认结果变成 [None]
-                confirmed_item_names.append(picked.get("items_name"))
+                confirmed_item_names.append(picked.get("item_name"))
                 # 本轮处理完，继续下一个商品名
                 continue
 
             # 情况三：没有高分，但有中分 → 说明"有点像但不确定"，交给用户选
-            if len(mid_results) >0:
+            if len(mid_results) > 0:
                 # 最多取前 5 个中分候选，逐个放进 options
                 for mr in mid_results[:5]:
                     # 把候选的标准商品名加入待选列表
@@ -406,7 +406,7 @@ class NodeItemNameConfirm(NodeBase):
         # 返回对齐结果
         return {
             # 确认命中：用 set 去重，再转回列表（避免同一个商品名被重复确认）
-            "confirmed_item_names":list(set(confirmed_item_names)) ,
+            "confirmed_item_names": list(set(confirmed_item_names)),
             # 候选项：保持原有顺序，不做去重
             "options": options
         }
@@ -420,9 +420,9 @@ class NodeItemNameConfirm(NodeBase):
         print("step_7:状态state信息,根据第六步高分低分对齐结果整理")
 
         # 取出高分确认结果
-        confirmed=align_result.get("confirmed_item_names")
+        confirmed = align_result.get("confirmed_item_names")
         # 取出中分候选结果
-        options=align_result.get("options")
+        options = align_result.get("options")
 
         # 分支 A：有高分确认的商品名 → 直接认定，继续往下走检索流程
         if confirmed:
@@ -434,6 +434,7 @@ class NodeItemNameConfirm(NodeBase):
             state["item_names"] = confirmed
             # 把答案置空：表示本节点不直接回复用户，交给下游节点继续检索作答
             state["answer"] = ""
+            return state
 
         # 分支 B：没有确认结果、但有候选 → 反问用户"你说的是哪个"
         elif options:
@@ -443,6 +444,7 @@ class NodeItemNameConfirm(NodeBase):
             options_str = "、".join(options)
             # 给用户的提示语：让他明确型号
             state["answer"] = f"您是想问以下哪个产品：{options_str}？请明确一下型号。"
+            return state
 
         # 分支 C：既没确认、也没候选 → 直接告诉用户没找到
         else:
@@ -487,6 +489,7 @@ class NodeItemNameConfirm(NodeBase):
         # 返回最终会话状态，供下游节点使用
         return state
 
+
 # 直接运行本文件时（python a_node_item_name_confirm.py）才执行的单元测试代码
 if __name__ == "__main__":
     # 初始化图状态
@@ -505,7 +508,6 @@ if __name__ == "__main__":
     # json_state = json.dumps(result, ensure_ascii=False, indent=4)
     # 输出
     logger.info(result)
-
 
 # =============================================================================
 # 附：阅读时值得留意的几处（仅为注释说明，代码未做任何修改）

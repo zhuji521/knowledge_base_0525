@@ -18,8 +18,12 @@ from utils.embedding_utils import generate_embeddings
 # 获取大模型客户端的工具函数
 from utils.llm_utils import get_llm_client
 # Milvus 客户端、混合检索请求构造、混合检索执行
-from utils.milvus_utils import get_milvus_client, create_hybrid_search_requests, hybrid_search
-
+from utils.milvus_utils import (
+    get_milvus_client,
+    create_hybrid_search_requests,
+    hybrid_search,
+    escape_milvus_string,
+)
 
 # HyDE 向量检索节点：继承节点基类
 class NodeSearchEmbeddingHyde(NodeBase):
@@ -62,11 +66,13 @@ class NodeSearchEmbeddingHyde(NodeBase):
 
         # json_response = json.dumps(response, ensure_ascii=False, indent=4)
         # 打印检索结果的第一条，方便调试
-        print(f"response[0],{response[0]}")
+        print(f"hyde hits: {len(response) if response else 0}")
+        if response:
+            print(response[0])
 
         # return state
         # 把 HyDE 检索到的 chunk 列表，以及假设性文档，写回状态
-        return {"hyde_embedding_chunks": response[0] if response else [],"hyde_doc":hyde_doc}
+        return {"hyde_embedding_chunks": response if response else [], "hyde_doc": hyde_doc}
 
     # 步骤1：调用大模型，生成假设性文档
     def _step_1_create_embedding_hyde_doc(self, rewritten_query: str) -> str:
@@ -105,12 +111,13 @@ class NodeSearchEmbeddingHyde(NodeBase):
         collection_name=milvus_config.chunks_collection
 
         # 构造混合检索请求（稠密 + 稀疏），并用 item_name 过滤
-        reqs=create_hybrid_search_requests(
-            dense_vector=dense_vector,              # 稠密向量
-            sparse_vector=sparse_vector,            # 稀疏向量
-            expr=f'item_name in {item_names}'       # 只搜指定物品名
+        safe_names = [f'"{escape_milvus_string(name)}"' for name in (item_names or [])]
+        expr = f'item_name in [{", ".join(safe_names)}]' if safe_names else None
+        reqs = create_hybrid_search_requests(
+            dense_vector=dense_vector,
+            sparse_vector=sparse_vector,
+            expr=expr,
         )
-
         # 执行混合检索，取 Top5，并指定要返回的字段
         response=hybrid_search(
             client=milvus_client,                   # Milvus 客户端

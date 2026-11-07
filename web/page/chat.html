@@ -1,0 +1,248 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>掌柜智库 - 检索</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; background: #f4f6f8; color: #1f2933; }
+        header { display: flex; justify-content: space-between; align-items: center; padding: 12px 20px; background: #0f172a; color: #fff; }
+        header label { margin-left: 16px; }
+        .dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #94a3b8; margin-right: 6px; }
+        .dot.ok { background: #22c55e; }
+        main { max-width: 860px; margin: 0 auto; padding: 16px 16px 120px; }
+        .msg { margin: 12px 0; padding: 12px 14px; border-radius: 12px; max-width: 80%; white-space: pre-wrap; }
+        .user { margin-left: auto; background: #dbeafe; }
+        .assistant { background: #fff; border: 1px solid #e2e8f0; }
+        .images img { max-width: 240px; margin: 8px 8px 0 0; border-radius: 8px; }
+        form { position: fixed; left: 0; right: 0; bottom: 0; display: flex; gap: 8px; padding: 12px 16px; background: #fff; border-top: 1px solid #e2e8f0; }
+        textarea { flex: 1; min-height: 52px; resize: vertical; padding: 8px; }
+        button { padding: 8px 14px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; }
+        button.ghost { background: #e2e8f0; color: #1f2933; }
+    </style>
+</head>
+<body>
+<header>
+    <div><span class="dot" id="dot"></span><span id="conn">未连接</span></div>
+    <div>
+        <span id="session"></span>
+        <label><input id="stream" type="checkbox" checked> 流式输出</label>
+        <button class="ghost" id="clear" type="button">清空历史</button>
+    </div>
+</header>
+<main id="chat"></main>
+<form id="composer">
+    <textarea id="query" placeholder="输入问题，Enter 发送，Shift+Enter 换行"></textarea>
+    <button type="submit">发送</button>
+</form>
+<script>
+    const chat = document.getElementById("chat");
+    const queryInput = document.getElementById("query");
+    const streamInput = document.getElementById("stream");
+    const sessionLabel = document.getElementById("session");
+    const dot = document.getElementById("dot");
+    const conn = document.getElementById("conn");
+    let eventSource = null;
+    let sessionId = localStorage.getItem("xrag_session_id");
+    if (!sessionId) {
+        sessionId = crypto.randomUUID();
+        localStorage.setItem("xrag_session_id", sessionId);
+    }
+    sessionLabel.textContent = sessionId;
+
+    function addMessage(role, text) {
+        const box = document.createElement("div");
+        box.className = "msg " + (role === "user" ? "user" : "assistant");
+        if (role !== "user") {
+            box.innerHTML = `<details><summary>处理进度</summary><div class="progress"></div></details><div class="answer"></div><div class="images"></div>`;
+            box.querySelector(".answer").textContent = text || "";
+        } else {
+            box.textContent = text;
+        }
+        chat.appendChild(box);
+        box.scrollIntoView({block: "end"});
+        return box;
+    }
+
+    async function checkHealth() {
+        try {
+            const response = await fetch("/health");
+            const data = await response.json();
+            dot.classList.toggle("ok", !!data.ok);
+            conn.textContent = data.ok ? "已连接" : "异常";
+        } catch (error) {
+            dot.classList.remove("ok");
+            conn.textContent = "未连接";
+        }
+    }
+
+    async function loadHistory() {
+        chat.innerHTML = "";
+        const response = await fetch("/history/" + sessionId);
+        if (!response.ok) return;
+        const data = await response.json();
+        (data.items || []).forEach((item) => addMessage(item.role, item.text || ""));
+    }
+
+    function renderProgress(box, data) {
+        const lines = [];
+        (data.running_list || []).forEach((name) => lines.push(name + "正在进行..."));
+        (data.done_list || []).forEach((name) => lines.push(name + "已完成"));
+        const progress = box.querySelector(".progress");
+        if (progress) progress.textContent = lines.join("\n");
+    }
+
+    function extractImageUrlsFromAnswer(text) {
+        const urls = [];
+        const seen = new Set();
+        const push = (u) => {
+            u = (u || "").trim();
+            if (!u || seen.has(u)) return;
+            seen.add(u);
+            urls.push(u);
+        };
+        const raw = text || "";
+        // 【图片】区块：标题下一行起的 http(s) 链接
+        const block = raw.match(/【图片】\s*([\s\S]*)$/);
+        if (block) {
+            block[1].split(/\r?\n/).forEach((line) => {
+                const m = line.trim().match(/^(https?:\/\/\S+)/i);
+                if (m) push(m[1]);
+            });
+        }
+        // Markdown 图片 ![alt](url)
+        const mdRe = /!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/gi;
+        let m;
+        while ((m = mdRe.exec(raw)) !== null) push(m[1]);
+        // 正文里裸露的图片 URL
+        const bareRe = /(https?:\/\/[^\s<>"'\]]+?\.(?:png|jpe?g|gif|webp|bmp|svg)(?:\?[^\s]*)?)/gi;
+        while ((m = bareRe.exec(raw)) !== null) push(m[1]);
+        return urls;
+    }
+
+    function stripImageBlockFromAnswer(text) {
+        if (!text) return "";
+        let cleaned = text.replace(/\n?【图片】\s*[\s\S]*$/m, "").trim();
+        cleaned = cleaned.replace(/!\[[^\]]*\]\((https?:\/\/[^)\s]+)\)/gi, "").trim();
+        return cleaned;
+    }
+
+    function renderImages(box, urls) {
+        const holder = box.querySelector(".images");
+        if (!holder) return;
+        holder.innerHTML = "";
+        (urls || []).forEach((url) => {
+            const img = document.createElement("img");
+            img.src = url;
+            img.alt = "参考图片";
+            img.loading = "lazy";
+            img.onerror = () => {
+                img.replaceWith(Object.assign(document.createElement("div"), {
+                    textContent: "图片加载失败: " + url,
+                    style: "color:#b91c1c;font-size:12px;margin:8px 0;"
+                }));
+            };
+            holder.appendChild(img);
+        });
+    }
+
+    function setAnswerWithImages(box, answer, extraUrls) {
+        const answerEl = box.querySelector(".answer");
+        if (!answerEl) return;
+        const fromAnswer = extractImageUrlsFromAnswer(answer || "");
+        const merged = [];
+        const seen = new Set();
+        [...fromAnswer, ...(extraUrls || [])].forEach((u) => {
+            if (!u || seen.has(u)) return;
+            seen.add(u);
+            merged.push(u);
+        });
+        answerEl.textContent = stripImageBlockFromAnswer(answer || "");
+        renderImages(box, merged);
+    }
+
+    document.getElementById("composer").addEventListener("submit", async (event) => {
+        event.preventDefault();
+        const query = queryInput.value.trim();
+        if (!query) return;
+        queryInput.value = "";
+        addMessage("user", query);
+        const assistantBox = addMessage("assistant", "");
+        const answerEl = assistantBox.querySelector(".answer");
+
+        const response = await fetch("/query", {
+            method: "POST",
+            headers: {"Content-Type": "application/json"},
+            body: JSON.stringify({
+                query: query,
+                session_id: sessionId,
+                is_stream: streamInput.checked
+            })
+        });
+        let result = {};
+        try {
+            result = await response.json();
+        } catch (error) {
+            answerEl.textContent = "查询失败";
+            return;
+        }
+        if (!response.ok) {
+            answerEl.textContent = result.detail || result.message || "查询失败";
+            return;
+        }
+        if (result.session_id) {
+            sessionId = result.session_id;
+            localStorage.setItem("xrag_session_id", sessionId);
+            sessionLabel.textContent = sessionId;
+        }
+        if (!streamInput.checked) {
+            setAnswerWithImages(assistantBox, result.answer || result.message || "", result.image_urls || []);
+            renderProgress(assistantBox, {done_list: result.done_list || [], running_list: []});
+            return;
+        }
+        if (eventSource) eventSource.close();
+        let streamFinished = false;
+        eventSource = new EventSource("/stream/" + sessionId);
+        const closeStream = () => {
+            streamFinished = true;
+            eventSource.close();
+        };
+        eventSource.addEventListener("progress", (e) => renderProgress(assistantBox, JSON.parse(e.data)));
+        eventSource.addEventListener("delta", (e) => {
+            const data = JSON.parse(e.data);
+            answerEl.textContent += data.delta || data.text || "";
+        });
+        eventSource.addEventListener("final", (e) => {
+            const data = JSON.parse(e.data);
+            const answerText = data.answer || answerEl.textContent || "";
+            setAnswerWithImages(assistantBox, answerText, data.image_urls || []);
+            closeStream();
+        });
+        eventSource.addEventListener("error", (e) => {
+            if (streamFinished) {
+                closeStream();
+                return;
+            }
+            if (!e.data) return;
+            const data = JSON.parse(e.data);
+            answerEl.textContent += "\n" + (data.error || "查询失败");
+            closeStream();
+        });
+    });
+
+    queryInput.addEventListener("keydown", (event) => {
+        if (event.key === "Enter" && !event.shiftKey) {
+            event.preventDefault();
+            document.getElementById("composer").requestSubmit();
+        }
+    });
+
+    document.getElementById("clear").addEventListener("click", async () => {
+        await fetch("/history/" + sessionId, {method: "DELETE"});
+        chat.innerHTML = "";
+    });
+
+    checkHealth();
+    loadHistory();
+</script>
+</body>
+</html>

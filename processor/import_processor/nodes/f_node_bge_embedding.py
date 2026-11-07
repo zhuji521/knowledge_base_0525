@@ -145,7 +145,7 @@ if __name__ == "__main__":
     }
 
     # 执行节点（BaseNode 可调用）
-    response = node(init_state)
+    response = node.process(init_state)
     chunks = response.get("chunks", [])
     print(f"向量化完成，共 {len(chunks)} 条")
     # 打印第 1 条向量摘要，确认维度正常

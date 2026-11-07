@@ -15,10 +15,10 @@ class LLMConfig:
     llm_temperature: float
 
 lm_config = LLMConfig(
-    base_url=os.getenv("DEEPSEEK_BASE_URL"),
-    api_key=os.getenv("DEEPSEEK_API_KEY"),
-    vl_model=os.getenv("VL_MODEL"),
-    llm_model=os.getenv("LLM_DEFAULT_MODEL"),
-    item_model=os.getenv("ITEM_MODEL"),
-    llm_temperature=float(os.getenv("LLM_DEFAULT_TEMPERATURE"))
+    base_url=os.getenv("OPENAI_API_BASE") or "",
+    api_key=os.getenv("OPENAI_API_KEY") or "",
+    vl_model=os.getenv("VL_MODEL") or "",
+    llm_model=os.getenv("LLM_DEFAULT_MODEL") or "qwen-flash",
+    item_model=os.getenv("ITEM_MODEL") or os.getenv("LLM_DEFAULT_MODEL") or "qwen-flash",
+    llm_temperature=float(os.getenv("LLM_DEFAULT_TEMPERATURE") or "0.1"),
 )

@@ -5,14 +5,11 @@
 # List/Dict: 类型注解
 import json
 import re
-from dataclasses import replace
 from pathlib import Path
-from sys import prefix, path
 from typing import List, Dict
 
 # ==================== 第三方库 ====================
 # RecursiveCharacterTextSplitter: 超长文本按长度递归再切
-import sections
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 
 # ==================== 项目内部 ====================
@@ -78,7 +75,7 @@ class NodeDocumentSplit(BaseNode):
         # 取文件标题；缺失则报错
         file_title = state.get("file_title")
         if not file_title:
-            raise StateFieldError(field_name="md_content", expected_type=str)
+            raise StateFieldError(field_name="file_title", expected_type=str)
 
         # 统一换行：\r\n、\r → \n
         content = content.replace("\r\n", "\n").replace("\r", "\n")
@@ -289,6 +286,7 @@ class NodeDocumentSplit(BaseNode):
 # ==================== 本地调试入口 ====================
 if __name__ == "__main__":
     node = NodeDocumentSplit()
+    
     with open(r"D:\output\hak180\hak180_new.md", "r", encoding="utf-8") as f:
         md_content = f.read()
 

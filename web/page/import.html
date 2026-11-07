@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>掌柜智库 - 文件导入</title>
+    <style>
+        body { font-family: sans-serif; margin: 0; background: #f4f6f8; color: #1f2933; }
+        main { max-width: 760px; margin: 32px auto; background: #fff; padding: 24px; border-radius: 12px; }
+        h1 { margin-top: 0; font-size: 22px; }
+        .drop {
+            border: 2px dashed #94a3b8;
+            border-radius: 10px;
+            padding: 36px 16px;
+            text-align: center;
+            background: #f8fafc;
+            cursor: pointer;
+        }
+        .drop.over { border-color: #2563eb; background: #eff6ff; }
+        input[type="file"] { display: none; }
+        button { margin-top: 16px; padding: 8px 16px; border: 0; border-radius: 8px; background: #2563eb; color: #fff; cursor: pointer; }
+        button:disabled { background: #94a3b8; cursor: default; }
+        .bar { height: 8px; background: #e2e8f0; border-radius: 99px; margin-top: 16px; overflow: hidden; }
+        .bar > div { height: 100%; width: 0; background: #2563eb; }
+        .task { margin-top: 18px; padding-top: 12px; border-top: 1px solid #e2e8f0; }
+        .status { font-weight: 600; }
+        .status.completed { color: #15803d; }
+        .status.failed { color: #b91c1c; }
+        .status.processing, .status.pending { color: #b45309; }
+        details { margin-top: 8px; }
+        pre { white-space: pre-wrap; background: #0f172a; color: #e2e8f0; padding: 12px; border-radius: 8px; }
+    </style>
+</head>
+<body>
+<main>
+    <h1>知识库导入</h1>
+    <p>支持 PDF 和 Markdown。上传后每 2 秒查询一次处理进度。</p>
+    <div class="drop" id="drop">点击或拖入文件</div>
+    <input id="file" type="file" accept=".pdf,.md,application/pdf,text/markdown" multiple>
+    <div>
+        <button id="upload" disabled>开始上传</button>
+    </div>
+    <div class="bar"><div id="progress"></div></div>
+    <p id="message"></p>
+    <div id="tasks"></div>
+</main>
+<script>
+    const drop = document.getElementById("drop");
+    const fileInput = document.getElementById("file");
+    const uploadBtn = document.getElementById("upload");
+    const progressBar = document.getElementById("progress");
+    const message = document.getElementById("message");
+    const tasks = document.getElementById("tasks");
+    let selectedFiles = [];
+
+    drop.addEventListener("click", () => fileInput.click());
+    drop.addEventListener("dragover", (event) => {
+        event.preventDefault();
+        drop.classList.add("over");
+    });
+    drop.addEventListener("dragleave", () => drop.classList.remove("over"));
+    drop.addEventListener("drop", (event) => {
+        event.preventDefault();
+        drop.classList.remove("over");
+        setFiles(event.dataTransfer.files);
+    });
+    fileInput.addEventListener("change", () => setFiles(fileInput.files));
+
+    function setFiles(fileList) {
+        selectedFiles = Array.from(fileList || []);
+        drop.textContent = selectedFiles.length
+            ? selectedFiles.map((file) => file.name).join("、")
+            : "点击或拖入文件";
+        uploadBtn.disabled = selectedFiles.length === 0;
+    }
+
+    uploadBtn.addEventListener("click", () => {
+        if (!selectedFiles.length) return;
+        uploadBtn.disabled = true;
+        message.textContent = "上传中...";
+        const form = new FormData();
+        selectedFiles.forEach((file) => form.append("files", file));
+
+        const xhr = new XMLHttpRequest();
+        xhr.open("POST", "/upload");
+        xhr.upload.onprogress = (event) => {
+            if (!event.lengthComputable) return;
+            progressBar.style.width = Math.round(event.loaded / event.total * 100) + "%";
+        };
+        xhr.onload = () => {
+            uploadBtn.disabled = false;
+            if (xhr.status < 200 || xhr.status >= 300) {
+                message.textContent = "上传失败：" + xhr.responseText;
+                return;
+            }
+            const data = JSON.parse(xhr.responseText);
+            message.textContent = "处理中...";
+            (data.task_ids || []).forEach(watchTask);
+        };
+        xhr.onerror = () => {
+            uploadBtn.disabled = false;
+            message.textContent = "上传失败";
+        };
+        xhr.send(form);
+    });
+
+    function watchTask(taskId) {
+        const box = document.createElement("section");
+        box.className = "task";
+        box.innerHTML = `<div>任务 ${taskId}</div><div class="status pending">pending</div><details open><summary>日志（点击展开）</summary><pre></pre></details>`;
+        tasks.prepend(box);
+        const statusEl = box.querySelector(".status");
+        const logEl = box.querySelector("pre");
+
+        const timer = setInterval(async () => {
+            try {
+                const response = await fetch("/status/" + taskId);
+                const data = await response.json();
+                const status = data.status || "pending";
+                statusEl.textContent = status;
+                statusEl.className = "status " + status;
+                const lines = [];
+                (data.running_list || []).forEach((name) => lines.push(name + "正在进行..."));
+                (data.done_list || []).forEach((name) => lines.push(name + "已完成"));
+                logEl.textContent = lines.join("\n");
+                if (status === "completed" || status === "failed") {
+                    clearInterval(timer);
+                    message.textContent = status === "completed" ? "已完成" : "处理失败";
+                }
+            } catch (error) {
+                logEl.textContent = "状态查询失败：" + error;
+            }
+        }, 2000);
+    }
+</script>
+</body>
+</html>
